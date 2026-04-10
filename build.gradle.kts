@@ -18,7 +18,7 @@ plugins {
 toolkitMultiversion.moveBuildsToRootProject.set(true)
 toolkitLoomHelper.useMixinRefMap(modData.id)
 repositories.maven("https://maven.teamresourceful.com/repository/maven-public/")
-repositories.mavenLocal() // TODO: remove once knit-1.21.11-fabric is published to remote maven
+repositories.maven("https://jitpack.io")
 
 dependencies {
     implementation(kotlin("stdlib-jdk8"))
@@ -28,7 +28,7 @@ dependencies {
         modImplementation("net.fabricmc:fabric-language-kotlin:${mcData.dependencies.fabric.fabricLanguageKotlinVersion}")
     }
 
-    modApi(include("xyz.meowing:knit-$mcData:118")!!)
+    modApi(include("xyz.meowing:knit-$mcData:119")!!)
 
     api(shade("org.lwjgl:lwjgl-nanovg:3.3.3")!!)
     listOf("windows", "linux", "macos", "macos-arm64").forEach { v ->
@@ -100,9 +100,11 @@ afterEvaluate {
     }
 }
 
-signing {
-    useGpgCmd()
-    sign(publishing.publications)
+if (findProperty("skipSigning") != "true") {
+    signing {
+        useGpgCmd()
+        sign(publishing.publications)
+    }
 }
 
 val createBundle = tasks.register<Zip>("createBundle") {
