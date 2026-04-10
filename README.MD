@@ -2,6 +2,8 @@
 
 Vexel is a modern, declarative GUI library for Minecraft mods that simplifies interface creation. Built on top of NanoVG, it offers both high-level declarative components and low-level rendering capabilities. Heavily inspired by Elementa, Vexel provides a clean API for creating responsive, animated user interfaces.
 
+This is a maintained fork by [bllryy](https://github.com/bllryy) updated to support Minecraft 1.21.11.
+
 Have questions? Join our [discord!](https://discord.gg/QHFWnydFXr)
 
 ## Features
@@ -12,52 +14,39 @@ Have questions? Join our [discord!](https://discord.gg/QHFWnydFXr)
 - **Component Library**: Pre-built elements like buttons, inputs, sliders, and more
 - **NanoVG Integration**: Direct access to powerful vector graphics rendering
 
+## Versions
+
+[![JitPack](https://jitpack.io/v/bllryy/vexel-updated.svg)](https://jitpack.io/#bllryy/vexel-updated)
+
+| Version | Loaders |
+|---|---|
+| 1.21.5 | Fabric |
+| 1.21.8 | Fabric |
+| 1.21.10 | Fabric |
+| 1.21.11 | Fabric |
+
 ## Installation
-
-### Vexel Versions
-
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.8.9-forge?label=Vexel%201.8.9%20Forge)
-
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.20.1-fabric?label=Vexel%201.20.1%20Fabric)
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.20.1-forge?label=Vexel%201.20.1%20Forge)
-
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.5-fabric?label=Vexel%201.21.5%20Fabric)
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.5-forge?label=Vexel%201.21.5%20Forge)
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.5-neoforge?label=Vexel%201.21.5%20NeoForge)
-
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.7-fabric?label=Vexel%201.21.7%20Fabric)
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.7-forge?label=Vexel%201.21.7%20Forge)
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.7-neoforge?label=Vexel%201.21.7%20NeoForge)
-
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.9-fabric?label=Vexel%201.21.9%20Fabric)
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.9-forge?label=Vexel%201.21.9%20Forge)
-![Maven Central Version](https://img.shields.io/maven-central/v/xyz.meowing/vexel-1.21.9-neoforge?label=Vexel%201.21.9%20NeoForge)
 
 Add Vexel to your `build.gradle.kts`:
 
 ```kotlin
-dependencies {
-    // mc-version: Your minecraft version, refer to the images above for the supported versions
-    // loader: Your mod loader, refer to the images above for the supported mod loaders
-    // version: The vexel version, use the number in the image above without the character "v", so like 106
-    modImplementation(include("xyz.meowing:vexel-<mc-version>-<loader>:<version>")!!)
-
-    // ONLY FORGE 1.8.9 - In your ModInitializer class, call Vexel.init() like:
-    class MyMod {
-        @Mod.EventHandler
-        fun init(event: FMLInitializationEvent) {
-            Vexel.init()
-            /* other code */
-        }
-    }
-
-    // It is highly recommended that you use Deftu's Gradle Toolkit but if you use any other GT,
-    // you may also need to add the following to your build script's repositories:
-    repositories {
-        maven("https://maven.deftu.dev/snapshots")
-        maven("https://maven.deftu.dev/releases")
-    }
+repositories {
+    maven("https://jitpack.io")
+    // Required for Deftu's Gradle Toolkit (if you use it)
+    maven("https://maven.deftu.dev/releases")
+    maven("https://maven.deftu.dev/snapshots")
 }
+
+dependencies {
+    // Replace TAG with the release version (e.g. 126)
+    // Replace mc-version with your target (e.g. 1.21.11-fabric)
+    modImplementation(include("xyz.meowing:vexel-<mc-version>:<TAG>")!!)
+}
+```
+
+For example, for Minecraft 1.21.11 on Fabric:
+```kotlin
+modImplementation(include("xyz.meowing:vexel-1.21.11-fabric:126")!!)
 ```
 
 ## Quick Start
@@ -78,8 +67,10 @@ class MyScreen : VexelScreen() {
     }
 }
 ```
+
 Elements can also be manually rendered outside of the standard screen hierarchy using `.drawAsRoot()`.
 This is useful for rendering custom overlays such as scoreboards, HUD elements, or menus that appear on top of the game without pausing it.
+
 ```kotlin
 val square = Rectangle()
             .backgroundColor(0xFFFF0000.toInt())
@@ -173,8 +164,18 @@ element
     }
 ```
 
-## 📚 Documentation
+## Documentation
 
 - [Component Reference](docs/Components.md)
 - [Element Reference](docs/Elements.md)
 - [Advanced Usage](docs/Advanced.md)
+
+## License
+
+Vexel is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for more information.
+
+## Credits
+
+- **Deftu** - Deftu's Gradle Toolkit and original publishing infrastructure
+- **meowing-xyz** - Original Vexel library
+- **bllryy** - 1.21.11 update and current maintenance
