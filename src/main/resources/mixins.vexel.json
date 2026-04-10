@@ -1,0 +1,11 @@
+{
+    "required": true,
+    "package": "xyz.meowing.vexel.mixins",
+    "injectors": {
+        "defaultRequire": 1
+    },
+    "client": [
+        "MixinGameRenderer",
+        "MixinGlStateManager"
+    ]
+}
