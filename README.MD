@@ -4,7 +4,7 @@ Vexel is a modern, declarative GUI library for Minecraft mods that simplifies in
 
 This is a maintained fork by [bllryy](https://github.com/bllryy) updated to support Minecraft 1.21.11.
 
-Have questions? Join our [discord!](https://discord.gg/QHFWnydFXr)
+Have questions? DM me on discord ```bllryyy```
 
 ## Features
 
