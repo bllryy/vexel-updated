@@ -30,18 +30,12 @@ Have questions? DM me on discord ```bllryyy```
 Add Vexel to your `build.gradle.kts`:
 
 ```kotlin
-repositories {
-    maven("https://jitpack.io")
-    // Required for Deftu's Gradle Toolkit (if you use it)
-    maven("https://maven.deftu.dev/releases")
-    maven("https://maven.deftu.dev/snapshots")
-}
-
-dependencies {
-    // Replace TAG with the release version (e.g. 126)
-    // Replace mc-version with your target (e.g. 1.21.11-fabric)
-    modImplementation(include("xyz.meowing:vexel-<mc-version>:<TAG>")!!)
-}
+repositories {                                                                                                                                                                                                                                                                                                                                                                               
+      maven("https://bllry.com/maven")                                                                                                                                                                                                                                                                                                                                                         
+  }                                                               
+  dependencies {                                                                                                                                                                                                                                                                                                                                                                               
+      modImplementation(include("xyz.meowing:vexel-1.21.11-fabric:126")!!)
+  }
 ```
 
 For example, for Minecraft 1.21.11 on Fabric:
