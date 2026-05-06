@@ -15,7 +15,7 @@ Have questions? DM me on discord ```bllryyy```
 - **NanoVG Integration**: Direct access to powerful vector graphics rendering
 
 ## Versions
-
+- delete soon
 [![JitPack](https://jitpack.io/v/bllryy/vexel-updated.svg)](https://jitpack.io/#bllryy/vexel-updated)
 
 | Version | Loaders |
