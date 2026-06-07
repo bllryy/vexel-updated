@@ -1,0 +1,34 @@
+# gradle
+.gradle/
+build/
+out/
+classes/
+
+# kotlin
+.kotlin/
+
+# idea
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# eclipse / vscode
+*.launch
+.settings/
+.vscode/
+bin/
+.classpath
+.project
+
+# macos
+*.DS_Store
+
+# fabric
+run/
+
+# java crash logs
+hs_err_*.log
+replay_*.log
+*.hprof
+*.jfr

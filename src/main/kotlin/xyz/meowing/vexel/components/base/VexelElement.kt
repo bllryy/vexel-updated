@@ -1,0 +1,897 @@
+@file:Suppress("UNUSED", "UNCHECKED_CAST")
+
+package xyz.meowing.vexel.components.base
+
+import xyz.meowing.knit.api.input.KnitMouse
+import xyz.meowing.knit.api.render.KnitResolution
+import xyz.meowing.vexel.Vexel.renderer
+import xyz.meowing.vexel.animations.AnimationManager
+import xyz.meowing.vexel.core.VexelWindow
+import xyz.meowing.vexel.animations.types.EasingType
+import xyz.meowing.vexel.animations.presets.fadeIn
+import xyz.meowing.vexel.animations.presets.fadeOut
+import xyz.meowing.vexel.components.base.enums.Alignment
+import xyz.meowing.vexel.components.base.enums.Offset
+import xyz.meowing.vexel.components.base.enums.Pos
+import xyz.meowing.vexel.components.base.enums.Size
+import xyz.meowing.vexel.components.core.Container
+import xyz.meowing.vexel.components.core.Rectangle
+import xyz.meowing.vexel.components.core.Tooltip
+import xyz.meowing.vexel.events.internal.KeyEvent
+import xyz.meowing.vexel.events.internal.MouseEvent
+
+abstract class VexelElement<T : VexelElement<T>>(
+    var widthType: Size = Size.Pixels,
+    var heightType: Size = Size.Pixels
+) {
+    val children: MutableList<VexelElement<*>> = mutableListOf()
+
+    open var renderHitbox = false
+    open var xPositionConstraint = Pos.ParentPixels
+    open var yPositionConstraint = Pos.ParentPixels
+    open var xAlignment = Alignment.None
+    open var yAlignment = Alignment.None
+
+    open var x: Float = 0f
+        set(value) {
+            field = value
+            invalidateChildrenPositions()
+        }
+
+    open var y: Float = 0f
+        set(value) {
+            field = value
+            invalidateChildrenPositions()
+        }
+
+    open var width: Float = 0f
+        set(value) {
+            field = value
+            invalidateChildrenPositions()
+            invalidateChildrenSizes()
+        }
+
+    open var height: Float = 0f
+        set(value) {
+            field = value
+            invalidateChildrenPositions()
+            invalidateChildrenSizes()
+        }
+
+    inner class Scaled {
+        val scaleFactor get() = KnitResolution.scaleFactor.toFloat()
+
+        val left: Float get() = x / scaleFactor
+        val top: Float get() = y / scaleFactor
+        val right: Float get() = (x + width) / scaleFactor
+        val bottom: Float get() = (y + height) / scaleFactor
+        val centerX: Float get() = (x + width / 2f) / scaleFactor
+        val centerY: Float get() = (y + height / 2f) / scaleFactor
+        val width: Float get() = this@VexelElement.width / scaleFactor
+        val height: Float get() = this@VexelElement.height / scaleFactor
+    }
+
+    inner class Raw {
+        val left get() = x
+        val top get() = y
+        val right get() = x + width
+        val bottom get() = y + height
+        val centerX get() = (left + right) / 2f
+        val centerY get() = (top + bottom) / 2f
+        val width get() = this@VexelElement.width
+        val height get() = this@VexelElement.height
+    }
+
+    val raw = Raw()
+    val scaled = Scaled()
+
+    var widthPercent: Float = 100f
+    var heightPercent: Float = 100f
+
+    open var visible: Boolean = true
+        set(value) {
+            if (field != value) {
+                field = value
+                cache.invalidate()
+                invalidateChildrenCache()
+            }
+        }
+
+    open var xConstraint: Float = 0f
+    open var yConstraint: Float = 0f
+
+    open var maxAutoWidth: Float? = null
+    open var maxAutoHeight: Float? = null
+
+    open var xOffset: Float = 0f
+    open var yOffset: Float = 0f
+    open var xOffsetType: Offset = Offset.Pixels
+    open var yOffsetType: Offset = Offset.Pixels
+
+    open var isHovered: Boolean = false
+    open var isPressed: Boolean = false
+    open var isFocused: Boolean = false
+    open var isFloating: Boolean = false
+    open var ignoreFocus: Boolean = false
+    open var requiresFocus: Boolean = false
+
+    val screenWidth: Int get() = KnitResolution.windowWidth
+    val screenHeight: Int get() = KnitResolution.windowHeight
+
+    var parent: Any? = null
+        set(value) {
+            field = value
+            cache.invalidate()
+        }
+
+    var tooltipElement: Tooltip? = null
+    var onValueChange = mutableListOf<(Any) -> Unit>()
+
+    val cache = ElementCache()
+    val listeners = ElementListeners()
+
+    val mouseEnterListeners get() = listeners.mouseEnter
+    val mouseExitListeners get() = listeners.mouseExit
+    val mouseMoveListeners get() = listeners.mouseMove
+    val mouseScrollListeners get() = listeners.mouseScroll
+    val mouseClickListeners get() = listeners.mouseClick
+    val mouseReleaseListeners get() = listeners.mouseRelease
+    val charTypeListeners get() = listeners.charType
+
+    open fun invalidateChildrenCache() {
+        for (child in children) {
+            child.cache.invalidate()
+        }
+    }
+
+    open fun invalidateChildrenPositions() {
+        for (child in children) {
+            child.cache.invalidatePosition()
+        }
+    }
+
+    open fun invalidateChildrenSizes() {
+        for (child in children) {
+            child.cache.invalidateSize()
+        }
+    }
+
+    private fun checkScreenResize(): Boolean {
+        val resized = cache.lastScreenWidth != screenWidth || cache.lastScreenHeight != screenHeight
+        if (resized) {
+            cache.lastScreenWidth = screenWidth
+            cache.lastScreenHeight = screenHeight
+
+            val screenPosModes = setOf(Pos.ScreenPercent, Pos.ScreenPixels, Pos.ScreenCenter)
+            if (xPositionConstraint in screenPosModes || xAlignment != Alignment.None) cache.positionCacheValid = false
+            if (yPositionConstraint in screenPosModes || yAlignment != Alignment.None) cache.positionCacheValid = false
+            if (widthType == Size.Percent && parent !is VexelElement<*>) cache.sizeCacheValid = false
+            if (heightType == Size.Percent && parent !is VexelElement<*>) cache.sizeCacheValid = false
+        }
+        return resized
+    }
+
+    private fun renderDebugHitbox() {
+        if (!renderHitbox) return
+        children.forEach { it.enableDebugRendering() }
+
+        val color = if (isFocused) 0xFFFFA500.toInt() else if (isHovered) 0xFFFFFF00.toInt() else 0xFF00FFFF.toInt()
+
+        renderer.push()
+        renderer.hollowRect(x, y, width, height, 1f, color, 0f)
+        renderer.pop()
+    }
+
+    open fun destroy() {
+        children.toList().forEach { it.destroy() }
+        children.clear()
+        listeners.clear()
+        tooltipElement?.destroy()
+        tooltipElement = null
+        onValueChange.clear()
+
+        (parent as? VexelElement<*>)?.children?.remove(this)
+        parent = null
+    }
+
+    fun drawAsRoot() {
+        renderer.beginFrame(screenWidth.toFloat(), screenHeight.toFloat())
+        renderer.push()
+        render(KnitMouse.Raw.x.toFloat(), KnitMouse.Raw.y.toFloat())
+        AnimationManager.update()
+        renderer.pop()
+        renderer.endFrame()
+    }
+
+    fun findFirstVisibleParent(): VexelElement<*>? {
+        if (cache.parentCacheValid) return cache.cachedParent
+
+        var current = parent
+        while (current != null) {
+            if (current is VexelElement<*> && current.visible) {
+                cache.cachedParent = current
+                cache.parentCacheValid = true
+                return current
+            }
+            if (current is VexelWindow) {
+                cache.cachedParent = null
+                cache.parentCacheValid = true
+                return null
+            }
+            current = (current as? VexelElement<*>)?.parent
+        }
+
+        cache.cachedParent = null
+        cache.parentCacheValid = true
+        return null
+    }
+
+    private fun getParentPadding(): FloatArray {
+        return when (val parent = findFirstVisibleParent()) {
+            is Rectangle -> parent.padding
+            is Container -> parent.padding
+            else -> floatArrayOf(0f, 0f, 0f, 0f)
+        }
+    }
+
+    private fun getSiblingsAfterWidth(): Float {
+        val parentElement = parent as? VexelElement<*> ?: return 0f
+        val myIndex = parentElement.children.indexOf(this)
+        if (myIndex == -1) return 0f
+
+        return parentElement.children
+            .drop(myIndex + 1)
+            .filter { it.visible && !it.isFloating }
+            .sumOf { it.width.toDouble() }
+            .toFloat()
+    }
+
+    private fun getSiblingsAfterHeight(): Float {
+        val parentElement = parent as? VexelElement<*> ?: return 0f
+        val myIndex = parentElement.children.indexOf(this)
+        if (myIndex == -1) return 0f
+
+        return parentElement.children
+            .drop(myIndex + 1)
+            .filter { it.visible && !it.isFloating }
+            .sumOf { it.height.toDouble() }
+            .toFloat()
+    }
+
+    open fun updateWidth() {
+        if (cache.sizeCacheValid) {
+            width = cache.cachedWidth
+            return
+        }
+
+        width = when (widthType) {
+            Size.Auto -> getAutoWidth()
+            Size.Percent -> {
+                val parentElement = findFirstVisibleParent()
+                if (parentElement == null) {
+                    screenWidth * (widthPercent / 100f)
+                } else {
+                    val padding = getParentPadding()
+                    val availableWidth = parentElement.width - (padding[1] + padding[3])
+                    availableWidth * (widthPercent / 100f)
+                }
+            }
+            Size.Pixels -> width
+            Size.Fill -> {
+                val parentElement = findFirstVisibleParent()
+                if (parentElement == null) {
+                    (screenWidth.toFloat() - x).coerceAtLeast(0f)
+                } else {
+                    val padding = getParentPadding()
+                    val parentRightEdge = parentElement.x + parentElement.width - padding[1]
+                    val siblingWidth = getSiblingsAfterWidth()
+                    (parentRightEdge - x - siblingWidth).coerceAtLeast(0f)
+                }
+            }
+        }
+
+        cache.cachedWidth = width
+    }
+
+    open fun updateHeight() {
+        if (cache.sizeCacheValid) {
+            height = cache.cachedHeight
+            return
+        }
+
+        height = when (heightType) {
+            Size.Auto -> getAutoHeight()
+            Size.Percent -> {
+                val parentElement = findFirstVisibleParent()
+                if (parentElement == null) {
+                    screenHeight * (heightPercent / 100f)
+                } else {
+                    val padding = getParentPadding()
+                    val availableHeight = parentElement.height - (padding[0] + padding[2])
+                    availableHeight * (heightPercent / 100f)
+                }
+            }
+            Size.Pixels -> height
+            Size.Fill -> {
+                val parentElement = findFirstVisibleParent()
+                if (parentElement == null) {
+                    (screenHeight.toFloat() - y).coerceAtLeast(0f)
+                } else {
+                    val padding = getParentPadding()
+                    val parentBottomEdge = parentElement.y + parentElement.height - padding[2]
+                    val siblingHeight = getSiblingsAfterHeight()
+                    (parentBottomEdge - y - siblingHeight).coerceAtLeast(0f)
+                }
+            }
+        }
+
+        cache.cachedHeight = height
+    }
+
+    protected open fun getAutoWidth(): Float {
+        val maxWidth = children
+            .filter { it.visible && !it.isFloating }
+            .maxOfOrNull { (x - it.x) + it.width }
+        val calculated = maxWidth?.coerceAtLeast(0f) ?: 0f
+        return maxAutoWidth?.let { calculated.coerceAtMost(it) } ?: calculated
+    }
+
+    protected open fun getAutoHeight(): Float {
+        val maxHeight = children
+            .filter { it.visible && !it.isFloating }
+            .maxOfOrNull { (y - it.y) + it.height }
+        val calculated = maxHeight?.coerceAtLeast(0f) ?: 0f
+        return maxAutoHeight?.let { calculated.coerceAtMost(it) } ?: calculated
+    }
+
+    private fun computeOffset(offset: Float, offsetType: Offset, isWidth: Boolean): Float {
+        return when (offsetType) {
+            Offset.Pixels -> offset
+            Offset.Percent -> {
+                val parentElement = findFirstVisibleParent()
+                val base = if (isWidth) {
+                    parentElement?.width ?: screenWidth.toFloat()
+                } else {
+                    parentElement?.height ?: screenHeight.toFloat()
+                }
+                base * (offset / 100f)
+            }
+        }
+    }
+
+    fun updateX() {
+        if (cache.positionCacheValid) return
+
+        val visibleParent = findFirstVisibleParent()
+        val padding = getParentPadding()
+        val computedXOffset = computeOffset(xOffset, xOffsetType, true)
+
+        x = when (xPositionConstraint) {
+            Pos.ParentPercent -> {
+                val base = if (visibleParent != null) {
+                    visibleParent.x + padding[3] + (visibleParent.width - padding[1] - padding[3]) * (xConstraint / 100f)
+                } else {
+                    xConstraint
+                }
+                base + computedXOffset
+            }
+            Pos.ScreenPercent -> screenWidth * (xConstraint / 100f) + computedXOffset
+            Pos.ParentPixels -> {
+                val base = if (visibleParent != null) visibleParent.x + padding[3] + xConstraint else xConstraint
+                base + computedXOffset
+            }
+            Pos.ScreenPixels -> xConstraint + computedXOffset
+            Pos.ParentCenter -> {
+                val base = if (visibleParent != null) {
+                    val availableWidth = visibleParent.width - padding[1] - padding[3]
+                    visibleParent.x + padding[3] + (availableWidth - width) / 2f
+                } else {
+                    xConstraint
+                }
+                base + computedXOffset
+            }
+            Pos.ScreenCenter -> (screenWidth / 2f) - (width / 2f) + xConstraint + computedXOffset
+            Pos.AfterSibling -> computeAfterSiblingX(visibleParent) + computedXOffset
+            Pos.MatchSibling -> computeMatchSiblingX() + computedXOffset
+        }
+
+        x = applyXAlignment(x, visibleParent, padding)
+    }
+
+    private fun computeAfterSiblingX(visibleParent: VexelElement<*>?): Float {
+        val parentElement = parent as? VexelElement<*> ?: return xConstraint
+
+        val padding = getParentPadding()
+        val index = parentElement.children.indexOf(this)
+        if (index <= 0) {
+            return if (visibleParent != null) visibleParent.x + padding[3] + xConstraint else xConstraint
+        }
+
+        val prevVisible = parentElement.children.subList(0, index).lastOrNull { it.visible }
+
+        val prev = prevVisible?.x ?: 0f
+        val width = prevVisible?.width ?: 0f
+        return prev + width + xConstraint
+    }
+
+    private fun computeMatchSiblingX(): Float {
+        val parentElement = parent as? VexelElement<*> ?: return 0f
+
+        val index = parentElement.children.indexOf(this)
+        return if (index > 0) parentElement.children[index - 1].x else 0f
+    }
+
+    fun updateY() {
+        if (cache.positionCacheValid) return
+
+        val visibleParent = findFirstVisibleParent()
+        val padding = getParentPadding()
+        val computedYOffset = computeOffset(yOffset, yOffsetType, false)
+
+        y = when (yPositionConstraint) {
+            Pos.ParentPercent -> {
+                val base = if (visibleParent != null) {
+                    visibleParent.y + padding[0] + (visibleParent.height - padding[0] - padding[2]) * (yConstraint / 100f)
+                } else {
+                    yConstraint
+                }
+                base + computedYOffset
+            }
+            Pos.ScreenPercent -> screenHeight * (yConstraint / 100f) + computedYOffset
+            Pos.ParentPixels -> {
+                val base = if (visibleParent != null) visibleParent.y + padding[0] + yConstraint else yConstraint
+                base + computedYOffset
+            }
+            Pos.ScreenPixels -> yConstraint + computedYOffset
+            Pos.ParentCenter -> {
+                val base = if (visibleParent != null) {
+                    val availableHeight = visibleParent.height - padding[0] - padding[2]
+                    visibleParent.y + padding[0] + (availableHeight - height) / 2f
+                } else {
+                    yConstraint
+                }
+                base + computedYOffset
+            }
+            Pos.ScreenCenter -> (screenHeight / 2f) - (height / 2f) + yConstraint + computedYOffset
+            Pos.AfterSibling -> computeAfterSiblingY(visibleParent) + computedYOffset
+            Pos.MatchSibling -> computeMatchSiblingY() + computedYOffset
+        }
+
+        y = applyYAlignment(y, visibleParent, padding)
+    }
+
+    private fun computeAfterSiblingY(visibleParent: VexelElement<*>?): Float {
+        val parentElement = parent as? VexelElement<*> ?: return yConstraint
+
+        val padding = getParentPadding()
+        val index = parentElement.children.indexOf(this)
+        if (index <= 0) {
+            return if (visibleParent != null) visibleParent.y + padding[0] + yConstraint else yConstraint
+        }
+
+        val prevVisible = parentElement.children.subList(0, index).lastOrNull { it.visible }
+
+        val prev = prevVisible?.y ?: 0f
+        val height = prevVisible?.height ?: 0f
+        return prev + height + yConstraint
+    }
+
+    private fun computeMatchSiblingY(): Float {
+        val parentElement = parent as? VexelElement<*> ?: return yConstraint
+
+        val index = parentElement.children.indexOf(this)
+        return if (index > 0) parentElement.children[index - 1].y else yConstraint
+    }
+
+    private fun applyXAlignment(baseX: Float, visibleParent: VexelElement<*>?, padding: FloatArray): Float {
+        return when (xAlignment) {
+            Alignment.None -> baseX
+            Alignment.Start -> {
+                val leftEdge = if (visibleParent != null) visibleParent.x + padding[3] else 0f
+                leftEdge + xConstraint
+            }
+            Alignment.End -> {
+                val rightEdge = if (visibleParent != null) visibleParent.x + visibleParent.width - padding[1] else screenWidth.toFloat()
+                rightEdge - width + xConstraint
+            }
+        }
+    }
+
+    private fun applyYAlignment(baseY: Float, visibleParent: VexelElement<*>?, padding: FloatArray): Float {
+        return when (yAlignment) {
+            Alignment.None -> baseY
+            Alignment.Start -> {
+                val topEdge = if (visibleParent != null) visibleParent.y + padding[0] else 0f
+                topEdge + yConstraint
+            }
+            Alignment.End -> {
+                val bottomEdge = if (visibleParent != null) visibleParent.y + visibleParent.height - padding[2] else screenHeight.toFloat()
+                bottomEdge - height + yConstraint
+            }
+        }
+    }
+
+    open fun isPointInside(mouseX: Float, mouseY: Float): Boolean {
+        return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height
+    }
+
+    open fun handleMouseMove(mouseX: Float, mouseY: Float): Boolean {
+        if (!visible) return false
+
+        val wasHovered = isHovered
+        isHovered = isPointInside(mouseX, mouseY)
+
+        when {
+            isHovered && !wasHovered -> {
+                for (listener in mouseEnterListeners) {
+                    listener(MouseEvent.Move.Enter(mouseX, mouseY, this as T))
+                }
+
+                tooltipElement?.let { tooltip ->
+                    tooltip.fadeIn(200, EasingType.EASE_OUT)
+                    tooltip.innerText.fadeIn(200, EasingType.EASE_OUT)
+                }
+            }
+            !isHovered && wasHovered -> {
+                for (listener in mouseExitListeners) {
+                    listener(MouseEvent.Move.Exit(mouseX, mouseY, this as T))
+                }
+
+                tooltipElement?.let { tooltip ->
+                    tooltip.fadeOut(200, EasingType.EASE_OUT)
+                    tooltip.innerText.fadeOut(200, EasingType.EASE_OUT)
+                }
+            }
+        }
+
+        if (isHovered) {
+            for (listener in mouseMoveListeners) {
+                listener(MouseEvent.Move(mouseX, mouseY, this as T))
+            }
+        }
+
+        val childHandled = children.reversed().any { it.handleMouseMove(mouseX, mouseY) }
+        return childHandled || isHovered
+    }
+
+    open fun handleMouseClick(mouseX: Float, mouseY: Float, button: Int): Boolean {
+        if (!visible) return false
+
+        val childHandled = children.reversed().any {
+            it.handleMouseClick(mouseX, mouseY, button)
+        }
+
+        return when {
+            childHandled -> true
+            isPointInside(mouseX, mouseY) -> {
+                isPressed = true
+                focus()
+                val listenerHandled = mouseClickListeners.any {
+                    it(MouseEvent.Click(mouseX, mouseY, button, this as T))
+                }
+
+                listenerHandled || mouseClickListeners.isEmpty()
+            }
+            else -> {
+                if (requiresFocus && isFocused) unfocus()
+                false
+            }
+        }
+    }
+
+    open fun handleMouseRelease(mouseX: Float, mouseY: Float, button: Int): Boolean {
+        if (!visible) return false
+
+        val wasPressed = isPressed
+        isPressed = false
+
+        val childHandled = children.reversed().any {
+            it.handleMouseRelease(mouseX, mouseY, button)
+        }
+
+        if (childHandled) return true
+
+        if (wasPressed && isPointInside(mouseX, mouseY)) {
+            val listenerHandled = mouseReleaseListeners.any {
+                it(MouseEvent.Release(mouseX, mouseY, button, this as T))
+            }
+
+            return listenerHandled || mouseReleaseListeners.isEmpty()
+        }
+
+        return false
+    }
+
+    open fun handleMouseScroll(mouseX: Float, mouseY: Float, horizontal: Double, vertical: Double): Boolean {
+        if (!visible) return false
+
+        val childHandled = children.reversed().any {
+            it.handleMouseScroll(mouseX, mouseY, horizontal, vertical)
+        }
+
+        if (childHandled) return true
+
+        if (isPointInside(mouseX, mouseY)) {
+            return mouseScrollListeners.any {
+                it(MouseEvent.Scroll(mouseX, mouseY, horizontal, vertical, this as T))
+            }
+        }
+
+        return false
+    }
+
+    open fun handleCharType(keyCode: Int, scanCode: Int, charTyped: Char): Boolean {
+        if (!visible) return false
+
+        val childHandled = children.reversed().any {
+            it.handleCharType(keyCode, scanCode, charTyped)
+        }
+
+        val selfHandled = if (isFocused || ignoreFocus) charTypeListeners.any { it(KeyEvent.Type(keyCode, scanCode, charTyped, this as T)) } else false
+
+        return childHandled || selfHandled
+    }
+
+    fun focus() {
+        getRootElement().unfocusAll()
+        isFocused = true
+    }
+
+    fun unfocus() {
+        isFocused = false
+    }
+
+    private fun unfocusAll() {
+        if (isFocused) unfocus()
+        children.forEach { it.unfocusAll() }
+    }
+
+    fun getRootElement(): VexelElement<*> {
+        var current: VexelElement<*> = this
+        while (current.parent is VexelElement<*>) {
+            current = current.parent as VexelElement<*>
+        }
+        return current
+    }
+
+    open fun onWindowResize() {
+        cache.invalidate()
+        for (child in children) child.onWindowResize()
+    }
+
+    open fun render(mouseX: Float, mouseY: Float) {
+        if (!visible) return
+
+        checkScreenResize()
+
+        updateHeight()
+        updateWidth()
+        updateX()
+        updateY()
+
+        cache.sizeCacheValid = true
+        cache.positionCacheValid = true
+
+        onRender(mouseX, mouseY)
+        renderChildren(mouseX, mouseY)
+        renderDebugHitbox()
+    }
+
+    protected open fun renderChildren(mouseX: Float, mouseY: Float) {
+        children.forEach { it.render(mouseX, mouseY) }
+    }
+
+    protected abstract fun onRender(mouseX: Float, mouseY: Float)
+
+    fun childOf(parent: VexelElement<*>): T {
+        parent.addChild(this)
+        return this as T
+    }
+
+    fun childOf(parent: VexelWindow): T {
+        parent.addChild(this)
+        return this as T
+    }
+
+    fun addChild(child: VexelElement<*>): T {
+        child.parent = this
+        children.add(child)
+        return this as T
+    }
+
+    fun setMaxAutoSize(maxWidth: Float? = null, maxHeight: Float? = null): T {
+        this.maxAutoWidth = maxWidth
+        this.maxAutoHeight = maxHeight
+        cache.sizeCacheValid = false
+        return this as T
+    }
+
+    fun setSizing(widthType: Size, heightType: Size): T {
+        this.widthType = widthType
+        this.heightType = heightType
+        cache.sizeCacheValid = false
+        return this as T
+    }
+
+    fun setSizing(width: Float, widthType: Size, height: Float, heightType: Size): T {
+        this.widthType = widthType
+        this.heightType = heightType
+
+        if (widthType == Size.Pixels) this.width = width else this.widthPercent = width
+        if (heightType == Size.Pixels) this.height = height else this.heightPercent = height
+
+        cache.sizeCacheValid = false
+        return this as T
+    }
+
+    fun setPositioning(xConstraint: Pos, yConstraint: Pos): T {
+        this.xPositionConstraint = xConstraint
+        this.yPositionConstraint = yConstraint
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun setPositioning(xVal: Float, xPos: Pos, yVal: Float, yPos: Pos): T {
+        this.xConstraint = xVal
+        this.xPositionConstraint = xPos
+        this.yConstraint = yVal
+        this.yPositionConstraint = yPos
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun setAlignment(xAlignment: Alignment, yAlignment: Alignment): T {
+        this.xAlignment = xAlignment
+        this.yAlignment = yAlignment
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun alignLeft(): T {
+        this.xAlignment = Alignment.Start
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun alignRight(): T {
+        this.xAlignment = Alignment.End
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun alignTop(): T {
+        this.yAlignment = Alignment.Start
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun alignBottom(): T {
+        this.yAlignment = Alignment.End
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun setOffset(xOffset: Float, xOffsetType: Offset, yOffset: Float, yOffsetType: Offset): T {
+        this.xOffset = xOffset
+        this.xOffsetType = xOffsetType
+        this.yOffset = yOffset
+        this.yOffsetType = yOffsetType
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun setOffset(xOffset: Float, yOffset: Float): T {
+        this.xOffset = xOffset
+        this.xOffsetType = Offset.Pixels
+        this.yOffset = yOffset
+        this.yOffsetType = Offset.Pixels
+        cache.positionCacheValid = false
+        return this as T
+    }
+
+    fun addTooltip(tooltip: String): T {
+        tooltipElement = Tooltip().apply {
+            innerText.text = tooltip
+            childOf(this@VexelElement)
+        }
+        return this as T
+    }
+
+    fun onMouseEnter(callback: (MouseEvent.Move.Enter) -> Unit): T {
+        mouseEnterListeners.add(callback)
+        return this as T
+    }
+
+    fun onMouseExit(callback: (MouseEvent.Move.Exit) -> Unit): T {
+        mouseExitListeners.add(callback)
+        return this as T
+    }
+
+    fun onMouseMove(callback: (MouseEvent.Move) -> Unit): T {
+        mouseMoveListeners.add(callback)
+        return this as T
+    }
+
+    fun onHover(onEnter: (MouseEvent.Move.Enter) -> Unit = { _ -> }, onExit: (MouseEvent.Move.Exit) -> Unit = { _ -> }): T {
+        onMouseEnter(onEnter)
+        onMouseExit(onExit)
+        return this as T
+    }
+
+    fun onMouseClick(callback: (MouseEvent.Click) -> Boolean): T {
+        mouseClickListeners.add(callback)
+        return this as T
+    }
+
+    fun onClick(callback: (MouseEvent.Click) -> Boolean): T {
+        return onMouseClick(callback)
+    }
+
+    fun onMouseRelease(callback: (MouseEvent.Release) -> Boolean): T {
+        mouseReleaseListeners.add(callback)
+        return this as T
+    }
+
+    fun onRelease(callback: (MouseEvent.Release) -> Boolean): T {
+        return onMouseRelease(callback)
+    }
+
+    fun onMouseScroll(callback: (MouseEvent.Scroll) -> Boolean): T {
+        mouseScrollListeners.add(callback)
+        return this as T
+    }
+
+    fun onScroll(callback: (MouseEvent.Scroll) -> Boolean): T {
+        return onMouseScroll(callback)
+    }
+
+    fun onCharType(callback: (KeyEvent.Type) -> Boolean): T {
+        charTypeListeners.add(callback)
+        return this as T
+    }
+
+    fun onValueChange(callback: (Any) -> Unit): T {
+        this.onValueChange.add(callback)
+        return this as T
+    }
+
+    fun ignoreMouseEvents(): T {
+        mouseClickListeners.add { _ -> false }
+        mouseReleaseListeners.add { _ -> false }
+        mouseScrollListeners.add { _ -> false }
+        mouseMoveListeners.add { _ -> }
+        mouseEnterListeners.add { _ -> }
+        mouseExitListeners.add { _ -> }
+        return this as T
+    }
+
+    fun ignoreFocus(): T {
+        ignoreFocus = true
+        return this as T
+    }
+
+    fun setFloating(): T {
+        isFloating = true
+        return this as T
+    }
+
+    fun setRequiresFocus(): T {
+        requiresFocus = true
+        return this as T
+    }
+
+    fun show(): T {
+        visible = true
+        return this as T
+    }
+
+    fun hide(): T {
+        visible = false
+        return this as T
+    }
+
+    fun enableDebugRendering(): T {
+        renderHitbox = true
+        return this as T
+    }
+}
