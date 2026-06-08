@@ -11,7 +11,7 @@ object Vexel {
     private var _renderer: RenderAPI? = null
 
     @JvmStatic
-    val defaultFont = Font("Default", client.resourceManager.getResource(Identifier.fromNamespaceAndPath("vexel", "font.ttf")).get().open())
+    val defaultFont = Font("Default", client.resourceManager.getResourceStack(Identifier.fromNamespaceAndPath("vexel", "font.ttf")).first().open())
 
     @JvmStatic
     val eventBus = EventBus()

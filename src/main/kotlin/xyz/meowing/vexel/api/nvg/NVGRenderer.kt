@@ -1,11 +1,14 @@
+
 @file:Suppress("UNUSED")
 
 package xyz.meowing.vexel.api.nvg
 
+import com.mojang.blaze3d.opengl.GlBackend
+import com.mojang.blaze3d.opengl.GlTexture
+import com.mojang.blaze3d.pipeline.RenderTarget
 import com.mojang.blaze3d.systems.RenderSystem
 import org.lwjgl.nanovg.*
 import org.lwjgl.opengl.GL11
-import org.lwjgl.opengl.GL13
 import org.lwjgl.opengl.GL20
 import org.lwjgl.opengl.GL30
 import org.lwjgl.stb.STBImage
@@ -24,14 +27,10 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.round
 
-import com.mojang.blaze3d.opengl.DirectStateAccess
-import com.mojang.blaze3d.opengl.GlTexture
 import com.mojang.blaze3d.opengl.GlStateManager
 import xyz.meowing.vexel.api.RenderAPI
 
-//#if MC >= 1.21.9
-//$$ import org.lwjgl.opengl.GL13
-//#endif
+import org.lwjgl.opengl.GL13
 
 /*
  * BSD 3-Clause License
@@ -83,8 +82,6 @@ object NVGRenderer : RenderAPI {
     private var scissor: Scissor? = null
 
     private var vg = -1L
-    private var cachedDsa: DirectStateAccess? = null
-    private var diagLogged = false
 
     init {
         vg = NanoVGGL3.nvgCreate(NanoVGGL3.NVG_ANTIALIAS or NanoVGGL3.NVG_STENCIL_STROKES)
@@ -98,49 +95,39 @@ object NVGRenderer : RenderAPI {
 
         StateTracker.previousProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM)
 
-        val framebuffer = client.mainRenderTarget ?: return
+        val renderTarget = client.mainRenderTarget ?: return
 
         if (
             vg == -1L ||
-            framebuffer.colorTexture == null
+            renderTarget.getColorTexture() == null
         ) return
 
-        // Bind MC's main render-target FBO so NanoVG's raw-GL draws land on the visible target.
-        // GlDevice is package-private in 26.1.2, so resolve its public directStateAccess() via
-        // reflection (walk the hierarchy + setAccessible; cache it). Fall back to the currently
-        // bound framebuffer if resolution fails.
-        try {
-            if (cachedDsa == null) {
-                val device = RenderSystem.getDevice()
-                var c: Class<*>? = device.javaClass
-                while (c != null && cachedDsa == null) {
-                    try {
-                        val m = c.getDeclaredMethod("directStateAccess").apply { isAccessible = true }
-                        cachedDsa = m.invoke(device) as DirectStateAccess
-                    } catch (e: NoSuchMethodException) {
-                        c = c.superclass
-                    }
+        val glFramebuffer = run {
+            try {
+                val colorTex = renderTarget.getColorTexture() ?: return@run 0
+                val device = com.mojang.blaze3d.systems.RenderSystem.getDevice() ?: return@run 0
+                var clazz: Class<*>? = device.javaClass
+                var dsaField: java.lang.reflect.Field? = null
+                while (clazz != null && dsaField == null) {
+                    try { dsaField = clazz.getDeclaredField("directStateAccess") } catch (_: NoSuchFieldException) {}
+                    clazz = clazz.superclass
                 }
-            }
-            cachedDsa?.let { dsa ->
-                val fbo = (framebuffer.colorTexture as GlTexture).getFbo(dsa, null)
-                GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo)
-            }
-        } catch (e: Exception) {
-            // keep the currently-bound framebuffer
+                dsaField?.isAccessible = true
+                val dsa = dsaField?.get(device) ?: return@run 0
+                var texClazz: Class<*>? = colorTex.javaClass
+                var getFboMethod: java.lang.reflect.Method? = null
+                while (texClazz != null && getFboMethod == null) {
+                    getFboMethod = texClazz.declaredMethods.firstOrNull { it.name == "getFbo" && it.parameterCount == 2 }
+                    texClazz = texClazz.superclass
+                }
+                getFboMethod?.isAccessible = true
+                (getFboMethod?.invoke(colorTex, dsa, null) as? Int) ?: 0
+            } catch (_: Exception) { 0 }
         }
 
-        GlStateManager._viewport(0, 0, framebuffer.width, framebuffer.height)
+        GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, glFramebuffer)
+        GlStateManager._viewport(0, 0, renderTarget.width, renderTarget.height)
         GlStateManager._activeTexture(GL30.GL_TEXTURE0)
-        // 26.1.2 leaves a sampler object bound on texture unit 0; it overrides NanoVG's font-atlas
-        // sampler params, making text invisible (shapes still render). Unbind it.
-        org.lwjgl.opengl.GL33C.glBindSampler(0, 0)
-
-        if (!diagLogged) {
-            diagLogged = true
-            val w = client.window
-            println("[NVG-DIAG] fb=${framebuffer.width}x${framebuffer.height} winGetW=${w.width}x${w.height} screen=${w.screenWidth}x${w.screenHeight} guiScaled=${w.guiScaledWidth}x${w.guiScaledHeight} guiScale=${w.guiScale} nvgFrame=${width}x${height} mouse=${client.mouseHandler.xpos()},${client.mouseHandler.ypos()}")
-        }
 
         NanoVG.nvgBeginFrame(vg, width, height, 1f)
         NanoVG.nvgTextAlign(vg, NanoVG.NVG_ALIGN_LEFT or NanoVG.NVG_ALIGN_TOP)
@@ -450,6 +437,11 @@ object NVGRenderer : RenderAPI {
         NanoVG.nvgFill(vg)
     }
 
+    fun createNVGImage(glId: Int, width: Int, height: Int): Int {
+        if (vg == -1L) return -1
+        return NanoVGGL3.nvglCreateImageFromHandle(vg, glId, width, height, 0)
+    }
+
     override fun createImage(resourcePath: String, width: Int, height: Int, color: Color, id: String): Image {
         val image = Image(resourcePath)
 
@@ -459,16 +451,6 @@ object NVGRenderer : RenderAPI {
             images.getOrPut(image) { NVGImage(0, loadImage(image)) }.count++
         }
         return image
-    }
-
-    /**
-     * Wraps an existing OpenGL texture id as a NanoVG image handle (no copy). Returns the NVG
-     * image id, or -1 on failure. Used by consumers that already have a GL texture (e.g. the block
-     * atlas) and want to draw sub-regions of it through NanoVG.
-     */
-    fun createNVGImage(glId: Int, width: Int, height: Int): Int {
-        if (vg == -1L || glId <= 0) return -1
-        return NanoVGGL3.nvglCreateImageFromHandle(vg, glId, width, height, 0)
     }
 
     override fun cleanCache() {
@@ -596,3 +578,4 @@ object NVGRenderer : RenderAPI {
     private data class NVGImage(var count: Int, val nvg: Int)
     private data class NVGFont(val id: Int, val buffer: ByteBuffer)
 }
+

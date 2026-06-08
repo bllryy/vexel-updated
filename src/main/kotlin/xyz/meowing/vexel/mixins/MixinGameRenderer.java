@@ -14,7 +14,7 @@ import static xyz.meowing.vexel.Vexel.getEventBus;
 
 @Mixin(GameRenderer.class)
 public class MixinGameRenderer {
-    @Inject(method = "render", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;endFrame()V", shift = At.Shift.AFTER), cancellable = true)
+    @Inject(method = "render", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/render/GuiRenderer;incrementFrame()V", shift = At.Shift.AFTER), cancellable = true)
     public void hookRender(
             DeltaTracker tickCounter,
             boolean tick,

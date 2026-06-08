@@ -410,7 +410,7 @@ class TextInput(
 
     fun copySelection() {
         if (!hasSelection) return
-        client.keyboardHandler.clipboard = getSelectedText()
+        xyz.meowing.knit.api.KnitClipboard.string = getSelectedText()
     }
 
     fun cutSelection() {
@@ -420,7 +420,7 @@ class TextInput(
     }
 
     fun paste() {
-        val clipboardText = client.keyboardHandler.clipboard
+        val clipboardText = xyz.meowing.knit.api.KnitClipboard.string
         if (clipboardText.isNotEmpty()) {
             insertText(clipboardText)
         }
